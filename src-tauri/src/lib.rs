@@ -25,9 +25,12 @@ pub struct AppState {
     pub entries: Mutex<Vec<LogEntry>>,
 }
 
-// ── Commands (separate module to avoid macro_export namespace collision) ──────
+// ── Sub-modules ───────────────────────────────────────────────────────────────
 
 mod commands;
+pub mod facets;
+pub mod filter;
+pub mod parser;
 
 // ── App bootstrap ─────────────────────────────────────────────────────────────
 
@@ -42,6 +45,7 @@ pub fn run() {
             commands::parse_log_file,
             commands::filter_entries,
             commands::export_filtered,
+            commands::get_field_facets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running logdrop");

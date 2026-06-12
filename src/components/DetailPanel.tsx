@@ -9,8 +9,10 @@ function JsonTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
   const [collapsed, setCollapsed] = useState(depth > 2);
 
   if (value === null) return <span className="text-slate-500">null</span>;
-  if (typeof value === "boolean") return <span className="text-sky-400">{String(value)}</span>;
-  if (typeof value === "number") return <span className="text-amber-300">{value}</span>;
+  if (typeof value === "boolean")
+    return <span className="text-sky-400">{String(value)}</span>;
+  if (typeof value === "number")
+    return <span className="text-amber-300">{value}</span>;
   if (typeof value === "string") {
     return <span className="text-emerald-300">"{value}"</span>;
   }
@@ -23,7 +25,11 @@ function JsonTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
           onClick={() => setCollapsed((c) => !c)}
           className="text-slate-400 hover:text-slate-200 mr-1"
         >
-          {collapsed ? <ChevronRight size={12} className="inline" /> : <ChevronDown size={12} className="inline" />}
+          {collapsed ? (
+            <ChevronRight size={12} className="inline" />
+          ) : (
+            <ChevronDown size={12} className="inline" />
+          )}
         </button>
         <span className="text-slate-500">[{value.length}]</span>
         {!collapsed && (
@@ -42,14 +48,19 @@ function JsonTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
 
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return <span className="text-slate-500">{"{}"}</span>;
+    if (entries.length === 0)
+      return <span className="text-slate-500">{"{}"}</span>;
     return (
       <span>
         <button
           onClick={() => setCollapsed((c) => !c)}
           className="text-slate-400 hover:text-slate-200 mr-1"
         >
-          {collapsed ? <ChevronRight size={12} className="inline" /> : <ChevronDown size={12} className="inline" />}
+          {collapsed ? (
+            <ChevronRight size={12} className="inline" />
+          ) : (
+            <ChevronDown size={12} className="inline" />
+          )}
         </button>
         {collapsed && <span className="text-slate-500">{"{ … }"}</span>}
         {!collapsed && (
@@ -70,9 +81,11 @@ function JsonTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
 }
 
 export function DetailPanel() {
-  const { selectedEntry, setDetailOpen, setSelectedEntry } = useLogStore();
+  const activeTab = useLogStore((s) => s.activeTab());
+  const { setDetailOpen, setSelectedEntry } = useLogStore();
   const [copied, setCopied] = useState(false);
 
+  const selectedEntry = activeTab?.selectedEntry ?? null;
   if (!selectedEntry) return null;
 
   const level = detectLevel(selectedEntry);
@@ -91,7 +104,7 @@ export function DetailPanel() {
 
   const copyRaw = async () => {
     await navigator.clipboard.writeText(
-      JSON.stringify(selectedEntry.fields, null, 2)
+      JSON.stringify(selectedEntry.fields, null, 2),
     );
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
@@ -107,7 +120,12 @@ export function DetailPanel() {
           <span className="text-xs font-mono text-slate-500">
             #{selectedEntry.id + 1}
           </span>
-          <span className={clsx("text-xs px-1.5 py-0.5 rounded font-mono font-medium", LEVEL_BADGE[level])}>
+          <span
+            className={clsx(
+              "text-xs px-1.5 py-0.5 rounded font-mono font-medium",
+              LEVEL_BADGE[level],
+            )}
+          >
             {levelLabel}
           </span>
         </div>
@@ -116,7 +134,11 @@ export function DetailPanel() {
             onClick={copyRaw}
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded hover:bg-slate-800 transition-colors"
           >
-            {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+            {copied ? (
+              <Check size={12} className="text-emerald-400" />
+            ) : (
+              <Copy size={12} />
+            )}
             {copied ? "Copied" : "Copy"}
           </button>
           <button
@@ -141,7 +163,9 @@ export function DetailPanel() {
 
         {/* Raw */}
         <div className="px-4 py-3">
-          <div className="text-xs text-slate-600 mb-2 uppercase tracking-wider">Raw</div>
+          <div className="text-xs text-slate-600 mb-2 uppercase tracking-wider">
+            Raw
+          </div>
           <pre className="text-xs text-slate-400 font-mono whitespace-pre-wrap break-all leading-relaxed">
             {selectedEntry.raw}
           </pre>

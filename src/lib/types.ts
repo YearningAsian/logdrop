@@ -11,6 +11,37 @@ export interface ParseResult {
   parse_errors: number;
 }
 
+export interface TimeRange {
+  from: string | null;
+  to: string | null;
+}
+
+/** field → [[value, count], ...] sorted by frequency desc */
+export type FieldFacets = Record<string, Array<[string, number]>>;
+
+/** A single open-file tab */
+export interface TabState {
+  id: string;
+  filePath: string;
+  fileName: string;
+  entries: LogEntry[];
+  fields: string[];
+  visibleFields: string[];
+  totalLines: number;
+  parseErrors: number;
+  filter: string;
+  filterMode: FilterMode;
+  filterError: string | null;
+  filteredIds: Set<number>;
+  timeRange: TimeRange;
+  facetFilters: Record<string, Set<string>>;
+  facets: FieldFacets;
+  selectedEntry: LogEntry | null;
+  detailOpen: boolean;
+  /** Scroll offset in the virtual list, preserved on tab switch */
+  scrollTop: number;
+}
+
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "unknown";
 
 // pino-style numeric levels
@@ -61,3 +92,40 @@ export const LEVEL_BADGE: Record<LogLevel, string> = {
   fatal:   "bg-red-900 text-red-200 font-bold",
   unknown: "bg-slate-800 text-slate-400",
 };
+
+/** Build an empty tab state for a newly opened file */
+export function emptyTab(
+  id: string,
+  filePath: string,
+  fileName: string,
+): TabState {
+  return {
+    id,
+    filePath,
+    fileName,
+    entries: [],
+    fields: [],
+    visibleFields: [],
+    totalLines: 0,
+    parseErrors: 0,
+    filter: "",
+    filterMode: "text",
+    filterError: null,
+    filteredIds: new Set(),
+    timeRange: { from: null, to: null },
+    facetFilters: {},
+    facets: {},
+    selectedEntry: null,
+    detailOpen: false,
+    scrollTop: 0,
+  };
+}
+
+export type FilterMode = "text" | "regex";
+
+const DEFAULT_FIELD_LIMIT = 6;
+
+/** Derive visibleFields from the full fields list */
+export function defaultVisibleFields(fields: string[]): string[] {
+  return fields.slice(0, DEFAULT_FIELD_LIMIT);
+}

@@ -1,4 +1,4 @@
-import { useRef, useMemo, useCallback } from "react";
+import { useRef, useMemo, useCallback, useEffect } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -18,17 +18,37 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-export function LogTable() {
-  const { entries, filteredIds, visibleFields, selectedEntry, setSelectedEntry } =
-    useLogStore();
+interface LogTableProps {
+  /** The final set of entry ids to display (after text/regex + time + facet filters). */
+  effectiveFilteredIds: Set<number>;
+}
+
+export function LogTable({ effectiveFilteredIds }: LogTableProps) {
+  const activeTab = useLogStore((s) => s.activeTab());
+  const { setSelectedEntry, saveScrollTop } = useLogStore();
 
   const parentRef = useRef<HTMLDivElement>(null);
 
+  const entries = activeTab?.entries ?? [];
+  const visibleFields = activeTab?.visibleFields ?? [];
+  const selectedEntry = activeTab?.selectedEntry ?? null;
+  const savedScrollTop = activeTab?.scrollTop ?? 0;
+  const tabId = activeTab?.id ?? "";
+
   // Filtered + ordered entries
   const rows = useMemo(
-    () => entries.filter((e) => filteredIds.has(e.id)),
-    [entries, filteredIds]
+    () => entries.filter((e) => effectiveFilteredIds.has(e.id)),
+    [entries, effectiveFilteredIds],
   );
+
+  // Restore scroll position when the active tab changes (tab switch).
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    el.scrollTop = savedScrollTop;
+    // We intentionally only restore on tab identity change (not every render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabId]);
 
   // Build columns dynamically from visibleFields
   const columns = useMemo<ColumnDef<LogEntry>[]>(() => {
@@ -49,15 +69,25 @@ export function LogTable() {
       cols.push({
         id: field,
         header: field,
-        size: field === "message" || field === "msg" || field === "_raw" ? 380 : 160,
+        size:
+          field === "message" || field === "msg" || field === "_raw" ? 380 : 160,
         cell: ({ row }) => {
           const val = row.original.fields[field];
           const str = formatValue(val);
 
-          if (field === "level" || field === "severity" || field === "lvl") {
+          if (
+            field === "level" ||
+            field === "severity" ||
+            field === "lvl"
+          ) {
             const level = detectLevel(row.original);
             return (
-              <span className={clsx("text-xs px-1.5 py-0.5 rounded font-mono font-medium", LEVEL_BADGE[level])}>
+              <span
+                className={clsx(
+                  "text-xs px-1.5 py-0.5 rounded font-mono font-medium",
+                  LEVEL_BADGE[level],
+                )}
+              >
                 {str || "—"}
               </span>
             );
@@ -67,9 +97,12 @@ export function LogTable() {
             <span
               className={clsx(
                 "cell-value",
-                field === "timestamp" || field === "time" || field === "ts" || field === "@timestamp"
+                field === "timestamp" ||
+                  field === "time" ||
+                  field === "ts" ||
+                  field === "@timestamp"
                   ? "text-slate-400"
-                  : "text-slate-200"
+                  : "text-slate-200",
               )}
               title={str}
             >
@@ -105,8 +138,15 @@ export function LogTable() {
     (entry: LogEntry) => {
       setSelectedEntry(selectedEntry?.id === entry.id ? null : entry);
     },
-    [selectedEntry, setSelectedEntry]
+    [selectedEntry, setSelectedEntry],
   );
+
+  // Save scroll position when switching away from this tab.
+  const handleScroll = useCallback(() => {
+    if (tabId && parentRef.current) {
+      saveScrollTop(tabId, parentRef.current.scrollTop);
+    }
+  }, [tabId, saveScrollTop]);
 
   if (rows.length === 0) {
     return (
@@ -129,12 +169,16 @@ export function LogTable() {
             >
               {flexRender(header.column.columnDef.header, header.getContext())}
             </div>
-          ))
+          )),
         )}
       </div>
 
       {/* Virtual body */}
-      <div ref={parentRef} className="flex-1 overflow-auto relative">
+      <div
+        ref={parentRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-auto relative"
+      >
         <div style={{ height: totalHeight, position: "relative" }}>
           {virtualItems.map((vi) => {
             const row = tableRows[vi.index];
@@ -160,13 +204,16 @@ export function LogTable() {
                   isSelected && "selected",
                   !isSelected && level === "error" && "error-row",
                   !isSelected && level === "warn" && "warn-row",
-                  !isSelected && LEVEL_COLORS[level]
+                  !isSelected && LEVEL_COLORS[level],
                 )}
               >
                 {row.getVisibleCells().map((cell) => (
                   <div
                     key={cell.id}
-                    style={{ width: cell.column.getSize(), minWidth: cell.column.getSize() }}
+                    style={{
+                      width: cell.column.getSize(),
+                      minWidth: cell.column.getSize(),
+                    }}
                     className="px-3 flex items-center shrink-0 overflow-hidden h-full"
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
