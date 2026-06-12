@@ -1,17 +1,27 @@
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use regex::Regex;
 
 use crate::{AppState, LogEntry, ParseResult};
 
 // ── Pure helpers (unit-testable) ──────────────────────────────────────────────
 
 const PRIORITY_FIELDS: &[&str] = &[
-    "timestamp", "time", "ts", "@timestamp",
-    "level", "severity", "lvl",
-    "message", "msg", "error", "err",
-    "service", "host", "caller",
+    "timestamp",
+    "time",
+    "ts",
+    "@timestamp",
+    "level",
+    "severity",
+    "lvl",
+    "message",
+    "msg",
+    "error",
+    "err",
+    "service",
+    "host",
+    "caller",
 ];
 
 pub fn parse_ndjson(reader: impl BufRead) -> (Vec<LogEntry>, Vec<String>, usize, usize) {
@@ -35,28 +45,49 @@ pub fn parse_ndjson(reader: impl BufRead) -> (Vec<LogEntry>, Vec<String>, usize,
                     for k in fields.keys() {
                         all_fields.insert(k.clone());
                     }
-                    entries.push(LogEntry { id, raw: trimmed, fields });
+                    entries.push(LogEntry {
+                        id,
+                        raw: trimmed,
+                        fields,
+                    });
                 } else {
                     let mut fields = HashMap::new();
                     fields.insert("_value".to_string(), value);
                     all_fields.insert("_value".to_string());
-                    entries.push(LogEntry { id, raw: trimmed, fields });
+                    entries.push(LogEntry {
+                        id,
+                        raw: trimmed,
+                        fields,
+                    });
                 }
             }
             Err(_) => {
                 parse_errors += 1;
                 let mut fields = HashMap::new();
-                fields.insert("_raw".to_string(), serde_json::Value::String(trimmed.clone()));
+                fields.insert(
+                    "_raw".to_string(),
+                    serde_json::Value::String(trimmed.clone()),
+                );
                 all_fields.insert("_raw".to_string());
-                entries.push(LogEntry { id, raw: trimmed, fields });
+                entries.push(LogEntry {
+                    id,
+                    raw: trimmed,
+                    fields,
+                });
             }
         }
     }
 
     let mut fields: Vec<String> = all_fields.into_iter().collect();
     fields.sort_by(|a, b| {
-        let ai = PRIORITY_FIELDS.iter().position(|&p| p == a.as_str()).unwrap_or(usize::MAX);
-        let bi = PRIORITY_FIELDS.iter().position(|&p| p == b.as_str()).unwrap_or(usize::MAX);
+        let ai = PRIORITY_FIELDS
+            .iter()
+            .position(|&p| p == a.as_str())
+            .unwrap_or(usize::MAX);
+        let bi = PRIORITY_FIELDS
+            .iter()
+            .position(|&p| p == b.as_str())
+            .unwrap_or(usize::MAX);
         ai.cmp(&bi).then(a.cmp(b))
     });
 
@@ -226,20 +257,14 @@ mod tests {
 
     #[test]
     fn filter_text_single_term() {
-        let entries = make_entries(&[
-            r#"{"msg":"hello world"}"#,
-            r#"{"msg":"goodbye"}"#,
-        ]);
+        let entries = make_entries(&[r#"{"msg":"hello world"}"#, r#"{"msg":"goodbye"}"#]);
         let ids = filter_text(&entries, "hello");
         assert_eq!(ids, vec![0]);
     }
 
     #[test]
     fn filter_text_and_logic() {
-        let entries = make_entries(&[
-            r#"{"msg":"alpha beta gamma"}"#,
-            r#"{"msg":"alpha only"}"#,
-        ]);
+        let entries = make_entries(&[r#"{"msg":"alpha beta gamma"}"#, r#"{"msg":"alpha only"}"#]);
         let ids = filter_text(&entries, "alpha beta");
         assert_eq!(ids, vec![0]);
     }
