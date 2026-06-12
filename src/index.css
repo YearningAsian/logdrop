@@ -1,6 +1,9 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Override the default monospace stack to prefer coding fonts */
+@theme {
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, ui-monospace, monospace;
+}
 
 :root {
   color-scheme: dark;
