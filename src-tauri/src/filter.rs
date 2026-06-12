@@ -1,10 +1,22 @@
 use chrono::{DateTime, FixedOffset};
-use regex::Regex;
+use regex::RegexBuilder;
 
 use crate::LogEntry;
 
 /// Fields used to probe for a log line's timestamp.
 pub const TIMESTAMP_FIELDS: &[&str] = &["timestamp", "time", "ts", "@timestamp"];
+
+/// Upper bound on the compiled size of a user-supplied regex (bytes).
+///
+/// The `regex` crate uses finite automata (no backtracking), so classic
+/// catastrophic ReDoS is impossible. The remaining attack surface is a pattern
+/// that compiles to a very large program or DFA — e.g. huge bounded
+/// repetitions like `a{1000}{1000}` — which can consume large amounts of CPU
+/// and memory at compile/match time. We cap both the compiled-program size and
+/// the lazy-DFA cache so a hostile pattern fails fast instead of hanging the UI
+/// or exhausting memory. 1 MiB is well above any realistic log-search regex.
+const REGEX_SIZE_LIMIT: usize = 1024 * 1024; // 1 MiB
+const REGEX_DFA_SIZE_LIMIT: usize = 4 * 1024 * 1024; // 4 MiB
 
 pub fn filter_text(entries: &[LogEntry], query: &str) -> Vec<usize> {
     if query.trim().is_empty() {
@@ -25,7 +37,11 @@ pub fn filter_text(entries: &[LogEntry], query: &str) -> Vec<usize> {
 }
 
 pub fn filter_regex(entries: &[LogEntry], pattern: &str) -> Result<Vec<usize>, String> {
-    let re = Regex::new(pattern).map_err(|e| format!("Invalid regex: {e}"))?;
+    let re = RegexBuilder::new(pattern)
+        .size_limit(REGEX_SIZE_LIMIT)
+        .dfa_size_limit(REGEX_DFA_SIZE_LIMIT)
+        .build()
+        .map_err(|e| format!("Invalid regex: {e}"))?;
     Ok(entries
         .iter()
         .filter(|e| re.is_match(&e.raw))
@@ -170,6 +186,24 @@ mod tests {
         let entries = make_entries(&[r#"{"a":1}"#, r#"{"b":2}"#]);
         let ids = filter_regex(&entries, "").unwrap();
         assert_eq!(ids.len(), 2);
+    }
+
+    #[test]
+    fn filter_regex_oversized_pattern_rejected() {
+        // A pattern with enormous bounded repetition would compile to a huge
+        // program/DFA; the size limits must reject it rather than hang/OOM.
+        let entries = make_entries(&[r#"{"a":1}"#]);
+        let pattern = "a{1000}{1000}{1000}";
+        let result = filter_regex(&entries, pattern);
+        assert!(result.is_err(), "oversized regex should be rejected");
+    }
+
+    #[test]
+    fn filter_regex_normal_pattern_within_limits() {
+        // A realistic log-search regex must still compile fine under the caps.
+        let entries = make_entries(&[r#"{"msg":"GET /api/users 200"}"#]);
+        let ids = filter_regex(&entries, r#"(GET|POST)\s+/\S+\s+\d{3}"#).unwrap();
+        assert_eq!(ids, vec![0]);
     }
 
     // ── filter_time_range ─────────────────────────────────────────────────────
