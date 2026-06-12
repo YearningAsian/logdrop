@@ -13,6 +13,10 @@ src-tauri/target/
 .env.local
 .env.*.local
 
+# Local working notes (never committed)
+AGENTS.md
+task_plan.md
+
 # Editor
 .vscode/
 .idea/
