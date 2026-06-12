@@ -38,7 +38,6 @@ pub fn run() {
             entries: Mutex::new(Vec::new()),
         })
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             commands::parse_log_file,
             commands::filter_entries,

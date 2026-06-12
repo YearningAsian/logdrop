@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import { Search, FolderOpen, X, AlertCircle, ChevronDown, Download, Regex } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
 import { useLogStore } from "../lib/store";
 import clsx from "clsx";
 
@@ -31,22 +30,13 @@ export function FilterBar({ onBrowse }: FilterBarProps) {
   const toggleRegex = () => setFilterMode(filterMode === "text" ? "regex" : "text");
 
   const handleExport = async () => {
-    const destPath = await save({
-      filters: [
-        { name: "NDJSON", extensions: ["ndjson", "jsonl"] },
-        { name: "All files", extensions: ["*"] },
-      ],
-      defaultPath: "export.ndjson",
-    });
-    if (!destPath) return;
-
     setExporting(true);
     try {
-      const count = await invoke<number>("export_filtered", {
-        destPath,
+      // The save dialog is opened on the Rust side — no write path crosses IPC.
+      const count = await invoke<number | null>("export_filtered", {
         ids: [...filteredIds],
       });
-      console.info(`Exported ${count} entries to ${destPath}`);
+      if (count !== null) console.info(`Exported ${count} entries`);
     } catch (err) {
       console.error("Export failed:", err);
     } finally {

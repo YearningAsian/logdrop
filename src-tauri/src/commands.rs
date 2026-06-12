@@ -2,8 +2,13 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::{AppState, LogEntry, ParseResult};
+
+/// Entries are held in memory (once in Rust state, once in the webview), so cap
+/// input size to avoid OOM on accidental drops of multi-GB binaries or huge logs.
+const MAX_FILE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
 
 // ── Pure helpers (unit-testable) ──────────────────────────────────────────────
 
@@ -127,6 +132,17 @@ pub async fn parse_log_file(
     path: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<ParseResult, String> {
+    let meta = std::fs::metadata(&path).map_err(|e| format!("Cannot open file: {e}"))?;
+    if !meta.is_file() {
+        return Err("Not a regular file".to_string());
+    }
+    if meta.len() > MAX_FILE_BYTES {
+        return Err(format!(
+            "File is {:.1} GB — logdrop loads files into memory and currently caps input at 1 GB",
+            meta.len() as f64 / (1024.0 * 1024.0 * 1024.0)
+        ));
+    }
+
     let file = File::open(&path).map_err(|e| format!("Cannot open file: {e}"))?;
     let (entries, fields, total_lines, parse_errors) = parse_ndjson(BufReader::new(file));
 
@@ -157,17 +173,36 @@ pub async fn filter_entries(
     }
 }
 
-/// Write filtered entries to a destination file as NDJSON.
+/// Write filtered entries to a user-chosen file as NDJSON.
+///
+/// The destination is picked via a native save dialog opened from Rust, so the
+/// webview never supplies a write path over IPC (no path traversal surface).
+/// Returns `None` when the user cancels the dialog.
 #[tauri::command]
 pub async fn export_filtered(
-    dest_path: String,
+    app: tauri::AppHandle,
     ids: Vec<usize>,
     state: tauri::State<'_, AppState>,
-) -> Result<usize, String> {
+) -> Result<Option<usize>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("NDJSON", &["ndjson", "jsonl"])
+            .set_file_name("export.ndjson")
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let Some(file_path) = picked else {
+        return Ok(None); // user cancelled
+    };
+    let dest = file_path.into_path().map_err(|e| e.to_string())?;
+
     let entries = state.entries.lock().unwrap();
     let id_set: HashSet<usize> = ids.into_iter().collect();
 
-    let mut file = File::create(&dest_path).map_err(|e| format!("Cannot create file: {e}"))?;
+    let mut file = File::create(&dest).map_err(|e| format!("Cannot create file: {e}"))?;
     let mut count = 0usize;
 
     for entry in entries.iter() {
@@ -177,7 +212,7 @@ pub async fn export_filtered(
         }
     }
 
-    Ok(count)
+    Ok(Some(count))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
