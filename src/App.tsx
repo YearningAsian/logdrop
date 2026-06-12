@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useLogStore } from "./lib/store";
+import { useFilterPipeline } from "./lib/useFilterPipeline";
 import { ParseResult, FieldFacets } from "./lib/types";
 import { DropZone } from "./components/DropZone";
 import { FilterBar } from "./components/FilterBar";
@@ -20,8 +21,6 @@ export default function App() {
     openTab,
     setParseResult,
     setFilter,
-    setFilteredIds,
-    setFilterError,
     setFacets,
     setLoading,
     setLoadError,
@@ -41,7 +40,10 @@ export default function App() {
       const fileName = parts[parts.length - 1] ?? path;
       const tabId = openTab(path, fileName);
       try {
-        const result = await invoke<ParseResult>("parse_log_file", { path });
+        const result = await invoke<ParseResult>("parse_log_file", {
+          tabId,
+          path,
+        });
         setParseResult(
           tabId,
           result.entries,
@@ -50,7 +52,7 @@ export default function App() {
           result.parse_errors,
         );
         // Fire-and-forget facet computation — doesn't block the table from rendering.
-        invoke<FieldFacets>("get_field_facets")
+        invoke<FieldFacets>("get_field_facets", { tabId })
           .then((facets) => {
             // Store wants the active tab, but by the time we get here the user
             // may have switched tabs; we target tabId explicitly via setFacets.
@@ -62,7 +64,9 @@ export default function App() {
           .catch((e: unknown) => console.warn("Facet computation failed:", e));
       } catch (err) {
         console.error("Failed to parse log file:", err);
-        // Remove the tab we just opened (it has no data)
+        // Remove the tab we just opened (it has no data). Parsing may have
+        // partially stored entries before failing, so free any Rust-side state.
+        invoke("release_entries", { tabId }).catch(() => {});
         useLogStore.getState().closeTab(tabId);
         setLoadError(String(err));
       } finally {
@@ -85,81 +89,14 @@ export default function App() {
     }
   }, [loadFile]);
 
-  // ── Filter — entries are stored in Rust state, only the query travels IPC ───
-  // We maintain a single Rust state (last loaded file) — the IPC filter always
-  // runs against whatever `parse_log_file` most recently stored.  Each tab's
-  // filter runs independently via the `activeTabId` guard in the effect below.
+  // ── Filter pipeline ─────────────────────────────────────────────────────────
+  // Entries live in Rust state keyed by tab id; only the query travels IPC. The
+  // hook owns the debounced IPC filter + stale-response guard + facet
+  // intersection, and returns the final id set to display. The same facet logic
+  // is reused for export so the two never diverge.
 
-  const filterSeq = useRef(0);
-
-  // Re-run filtering whenever the active tab's query or time range changes.
+  const effectiveFilteredIds = useFilterPipeline(tab);
   const filter = tab?.filter ?? "";
-  const filterMode = tab?.filterMode ?? "text";
-  const timeRange = tab?.timeRange;
-  const entries = tab?.entries ?? [];
-
-  useEffect(() => {
-    if (entries.length === 0) return;
-    const seq = ++filterSeq.current;
-
-    const hasTimeFilter = timeRange?.from != null || timeRange?.to != null;
-
-    // Empty text/regex AND no time filter → resolve locally (no IPC round-trip).
-    if (filter.trim() === "" && !hasTimeFilter) {
-      setFilterError(null);
-      setFilteredIds(entries.map((e) => e.id));
-      return;
-    }
-
-    const debounce = setTimeout(async () => {
-      try {
-        const ids = await invoke<number[]>("filter_entries", {
-          query: filter,
-          useRegex: filterMode === "regex",
-          timeFrom: timeRange?.from ?? null,
-          timeTo: timeRange?.to ?? null,
-        });
-        if (seq !== filterSeq.current) return; // stale — newer query won
-        setFilterError(null);
-        setFilteredIds(ids);
-      } catch (err) {
-        if (seq !== filterSeq.current) return;
-        const msg = String(err).replace(/^.*Invalid regex:\s*/, "");
-        setFilterError(msg);
-      }
-    }, 150);
-
-    return () => clearTimeout(debounce);
-  }, [filter, filterMode, timeRange, entries, setFilteredIds, setFilterError]);
-
-  // Additional client-side facet filtering applied on top of the IPC results.
-  // When facetFilters is non-empty we intersect the IPC-filtered ids with
-  // entries matching all selected facet values (AND between fields, OR within).
-  const facetFilters = tab?.facetFilters ?? {};
-  const filteredIds = tab?.filteredIds ?? new Set<number>();
-
-  const effectiveFilteredIds = useMemo<Set<number>>(() => {
-    const activeFacets = Object.entries(facetFilters).filter(
-      ([, values]) => values.size > 0,
-    );
-    if (activeFacets.length === 0) return filteredIds;
-
-    const result = new Set<number>();
-    for (const entry of entries) {
-      if (!filteredIds.has(entry.id)) continue;
-      const passes = activeFacets.every(([field, values]) => {
-        const val = entry.fields[field];
-        if (val == null) return false;
-        const strVal =
-          typeof val === "string" || typeof val === "number" || typeof val === "boolean"
-            ? String(val)
-            : null;
-        return strVal != null && values.has(strVal);
-      });
-      if (passes) result.add(entry.id);
-    }
-    return result;
-  }, [facetFilters, filteredIds, entries]);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
 

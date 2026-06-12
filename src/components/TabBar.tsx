@@ -1,4 +1,5 @@
 import { X, Plus } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useLogStore } from "../lib/store";
 import clsx from "clsx";
 
@@ -8,6 +9,12 @@ interface TabBarProps {
 
 export function TabBar({ onBrowse }: TabBarProps) {
   const { tabs, activeTabId, setActiveTab, closeTab } = useLogStore();
+
+  // Close a tab and free its entries from Rust state (best-effort).
+  const handleClose = (id: string) => {
+    invoke("release_entries", { tabId: id }).catch(() => {});
+    closeTab(id);
+  };
 
   return (
     <div className="flex items-center h-9 border-b border-slate-800 bg-slate-950 shrink-0 overflow-x-auto">
@@ -34,7 +41,7 @@ export function TabBar({ onBrowse }: TabBarProps) {
                 aria-label={`Close ${tab.fileName}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  closeTab(tab.id);
+                  handleClose(tab.id);
                 }}
                 className={clsx(
                   "flex items-center justify-center w-4 h-4 rounded shrink-0 transition-colors",

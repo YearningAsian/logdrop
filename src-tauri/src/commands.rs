@@ -13,9 +13,12 @@ use crate::{AppState, ParseResult};
 const MAX_FILE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
 
 /// Load and parse a structured log file (NDJSON / JSON array).
-/// Stores entries in app state so subsequent filter calls never re-send them over IPC.
+/// Stores entries in app state under `tab_id` so subsequent filter calls never
+/// re-send them over IPC. Each open tab gets its own buffer, so filtering one
+/// file never reads another file's entries.
 #[tauri::command]
 pub async fn parse_log_file(
+    tab_id: String,
     path: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<ParseResult, String> {
@@ -40,32 +43,38 @@ pub async fn parse_log_file(
         parse_errors,
     };
 
-    *state.entries.lock().unwrap_or_else(|p| p.into_inner()) = entries;
+    state
+        .tabs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(tab_id, entries);
     Ok(result)
 }
 
-/// Full-text (AND) or regex filter over stored entries, with optional time range.
-/// Returns matching IDs. Only the query string and bounds travel over IPC — never
-/// the entry data.
+/// Full-text (AND) or regex filter over a tab's stored entries, with optional
+/// time range. Returns matching IDs. Only the tab id, query string and bounds
+/// travel over IPC — never the entry data.
 #[tauri::command]
 pub async fn filter_entries(
+    tab_id: String,
     query: String,
     use_regex: bool,
     time_from: Option<String>,
     time_to: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<usize>, String> {
-    let entries = state.entries.lock().unwrap_or_else(|p| p.into_inner());
+    let tabs = state.tabs.lock().unwrap_or_else(|p| p.into_inner());
+    let entries = tabs.get(&tab_id).map(Vec::as_slice).unwrap_or(&[]);
 
     let ids = if use_regex {
-        filter_regex(&entries, &query)?
+        filter_regex(entries, &query)?
     } else {
-        filter_text(&entries, &query)
+        filter_text(entries, &query)
     };
 
     Ok(filter_time_range(
         ids,
-        &entries,
+        entries,
         time_from.as_deref(),
         time_to.as_deref(),
     ))
@@ -78,10 +87,27 @@ pub async fn filter_entries(
 /// entry appear.  Sorted by frequency, capped at 20 values per field.
 #[tauri::command]
 pub async fn get_field_facets(
+    tab_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, Vec<(String, usize)>>, String> {
-    let entries = state.entries.lock().unwrap_or_else(|p| p.into_inner());
-    Ok(compute_facets(&entries))
+    let tabs = state.tabs.lock().unwrap_or_else(|p| p.into_inner());
+    let entries = tabs.get(&tab_id).map(Vec::as_slice).unwrap_or(&[]);
+    Ok(compute_facets(entries))
+}
+
+/// Drop a tab's stored entries from memory. Called when the user closes a tab so
+/// large files don't linger in Rust state after their window is gone.
+#[tauri::command]
+pub async fn release_entries(
+    tab_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .tabs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&tab_id);
+    Ok(())
 }
 
 /// Write filtered entries to a user-chosen file as NDJSON.
@@ -92,6 +118,7 @@ pub async fn get_field_facets(
 #[tauri::command]
 pub async fn export_filtered(
     app: tauri::AppHandle,
+    tab_id: String,
     ids: Vec<usize>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<usize>, String> {
@@ -110,7 +137,8 @@ pub async fn export_filtered(
     };
     let dest = file_path.into_path().map_err(|e| e.to_string())?;
 
-    let entries = state.entries.lock().unwrap_or_else(|p| p.into_inner());
+    let tabs = state.tabs.lock().unwrap_or_else(|p| p.into_inner());
+    let entries = tabs.get(&tab_id).map(Vec::as_slice).unwrap_or(&[]);
     let id_set: HashSet<usize> = ids.into_iter().collect();
 
     let mut file = File::create(&dest).map_err(|e| format!("Cannot create file: {e}"))?;
