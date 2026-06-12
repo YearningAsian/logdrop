@@ -76,6 +76,13 @@ export function DetailPanel() {
   if (!selectedEntry) return null;
 
   const level = detectLevel(selectedEntry);
+  // Untrusted content: only render the raw level field if it's a primitive.
+  const levelValue =
+    selectedEntry.fields["level"] ?? selectedEntry.fields["severity"];
+  const levelLabel =
+    typeof levelValue === "string" || typeof levelValue === "number"
+      ? String(levelValue)
+      : level;
 
   const close = () => {
     setSelectedEntry(null);
@@ -101,9 +108,7 @@ export function DetailPanel() {
             #{selectedEntry.id + 1}
           </span>
           <span className={clsx("text-xs px-1.5 py-0.5 rounded font-mono font-medium", LEVEL_BADGE[level])}>
-            {(selectedEntry.fields["level"] as string) ??
-              (selectedEntry.fields["severity"] as string) ??
-              level}
+            {levelLabel}
           </span>
         </div>
         <div className="flex items-center gap-2">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { FileText } from "lucide-react";
 
 interface DropZoneProps {
@@ -9,32 +10,32 @@ interface DropZoneProps {
 export function DropZone({ onFileDrop, onBrowse }: DropZoneProps) {
   const [dragging, setDragging] = useState(false);
 
+  // Tauri intercepts native drag-drop (HTML5 DataTransfer never exposes real
+  // paths in a Tauri webview) — listen to the webview drag-drop event instead.
   useEffect(() => {
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      setDragging(true);
-    };
-    const handleDragLeave = (e: DragEvent) => {
-      // Only clear when leaving the window entirely
-      if (!e.relatedTarget) setDragging(false);
-    };
-    const handleDrop = (e: DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      const file = e.dataTransfer?.files?.[0];
-      if (file) {
-        const path = (file as File & { path?: string }).path ?? file.name;
-        onFileDrop(path);
-      }
-    };
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
 
-    window.addEventListener("dragover", handleDragOver);
-    window.addEventListener("dragleave", handleDragLeave);
-    window.addEventListener("drop", handleDrop);
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (event.payload.type === "enter" || event.payload.type === "over") {
+          setDragging(true);
+        } else if (event.payload.type === "drop") {
+          setDragging(false);
+          const path = event.payload.paths[0];
+          if (path) onFileDrop(path);
+        } else {
+          setDragging(false);
+        }
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      });
+
     return () => {
-      window.removeEventListener("dragover", handleDragOver);
-      window.removeEventListener("dragleave", handleDragLeave);
-      window.removeEventListener("drop", handleDrop);
+      cancelled = true;
+      unlisten?.();
     };
   }, [onFileDrop]);
 
@@ -51,8 +52,6 @@ export function DropZone({ onFileDrop, onBrowse }: DropZoneProps) {
           }
         `}
         onClick={onBrowse}
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={(e) => { if (!e.relatedTarget) setDragging(false); }}
       >
         <div className={`
           p-5 rounded-xl transition-colors

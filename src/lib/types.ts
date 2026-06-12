@@ -13,13 +13,25 @@ export interface ParseResult {
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "unknown";
 
+// pino-style numeric levels
+const NUMERIC_LEVELS: Record<number, LogLevel> = {
+  10: "trace",
+  20: "debug",
+  30: "info",
+  40: "warn",
+  50: "error",
+  60: "fatal",
+};
+
 export function detectLevel(entry: LogEntry): LogLevel {
-  const raw = (
-    (entry.fields["level"] as string) ??
-    (entry.fields["severity"] as string) ??
-    (entry.fields["lvl"] as string) ??
-    ""
-  ).toLowerCase();
+  const value =
+    entry.fields["level"] ?? entry.fields["severity"] ?? entry.fields["lvl"];
+
+  // Log content is untrusted — level can be a number (pino), object, anything.
+  if (typeof value === "number") return NUMERIC_LEVELS[value] ?? "unknown";
+  if (typeof value !== "string") return "unknown";
+
+  const raw = value.toLowerCase();
 
   if (raw.includes("trace")) return "trace";
   if (raw.includes("debug")) return "debug";

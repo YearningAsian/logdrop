@@ -27,6 +27,7 @@ interface LogStore {
   // UI
   isLoading: boolean;
   detailOpen: boolean;
+  loadError: string | null;
 
   // Actions
   setFile: (path: string) => void;
@@ -40,6 +41,7 @@ interface LogStore {
   setVisibleFields: (fields: string[]) => void;
   setLoading: (v: boolean) => void;
   setDetailOpen: (v: boolean) => void;
+  setLoadError: (err: string | null) => void;
   reset: () => void;
 }
 
@@ -60,6 +62,7 @@ export const useLogStore = create<LogStore>((set) => ({
   selectedEntry: null,
   isLoading: false,
   detailOpen: false,
+  loadError: null,
 
   setFile: (path) => {
     const parts = path.replace(/\\/g, "/").split("/");
@@ -76,6 +79,7 @@ export const useLogStore = create<LogStore>((set) => ({
       parseErrors,
       selectedEntry: null,
       filter: "",
+      loadError: null,
     });
   },
 
@@ -103,6 +107,8 @@ export const useLogStore = create<LogStore>((set) => ({
 
   setDetailOpen: (v) => set({ detailOpen: v }),
 
+  setLoadError: (loadError) => set({ loadError }),
+
   reset: () =>
     set({
       filePath: null,
@@ -119,5 +125,6 @@ export const useLogStore = create<LogStore>((set) => ({
       selectedEntry: null,
       isLoading: false,
       detailOpen: false,
+      loadError: null,
     }),
 }));

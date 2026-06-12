@@ -11,8 +11,8 @@ import { Loader2 } from "lucide-react";
 
 export default function App() {
   const {
-    filePath, entries, isLoading,
-    filter, filterMode, setFile, setParseResult, setFilter, setFilteredIds, setFilterError, setLoading,
+    filePath, entries, isLoading, loadError,
+    filter, filterMode, setFile, setParseResult, setFilter, setFilteredIds, setFilterError, setLoading, setLoadError, reset,
   } = useLogStore();
 
   // ── File loading ────────────────────────────────────────────────────────────
@@ -25,10 +25,12 @@ export default function App() {
       setParseResult(result.entries, result.fields, result.total_lines, result.parse_errors);
     } catch (err) {
       console.error("Failed to parse log file:", err);
+      reset(); // back to the drop screen instead of an empty table
+      setLoadError(String(err));
     } finally {
       setLoading(false);
     }
-  }, [setFile, setLoading, setParseResult]);
+  }, [setFile, setLoading, setParseResult, setLoadError, reset]);
 
   const browseFile = useCallback(async () => {
     const selected = await open({
@@ -105,6 +107,11 @@ export default function App() {
             ⌘O to open
           </span>
         </div>
+        {loadError && (
+          <div className="px-4 py-2 text-xs font-mono text-red-400 bg-red-950/40 border-b border-red-900/40" role="alert">
+            {loadError}
+          </div>
+        )}
         <DropZone onFileDrop={loadFile} onBrowse={browseFile} />
       </div>
     );
