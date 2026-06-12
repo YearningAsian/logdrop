@@ -123,6 +123,50 @@ export function emptyTab(
 
 export type FilterMode = "text" | "regex";
 
+/**
+ * Stringify a log field value for facet comparison. Only scalar values
+ * (string / number / boolean) participate in faceting; everything else
+ * (objects, arrays, null) returns null and never matches.
+ */
+function facetStringValue(val: unknown): string | null {
+  return typeof val === "string" ||
+    typeof val === "number" ||
+    typeof val === "boolean"
+    ? String(val)
+    : null;
+}
+
+/**
+ * Intersect a base set of entry ids with the active facet filters.
+ *
+ * Facet logic: AND between fields, OR within a field's selected values. A field
+ * with no selected values is ignored. When no facets are active the base set is
+ * returned unchanged (same reference) so callers can cheaply detect a no-op.
+ *
+ * Shared by the table view and export so both honour the same filtered set.
+ */
+export function applyFacetFilters(
+  entries: LogEntry[],
+  baseIds: Set<number>,
+  facetFilters: Record<string, Set<string>>,
+): Set<number> {
+  const activeFacets = Object.entries(facetFilters).filter(
+    ([, values]) => values.size > 0,
+  );
+  if (activeFacets.length === 0) return baseIds;
+
+  const result = new Set<number>();
+  for (const entry of entries) {
+    if (!baseIds.has(entry.id)) continue;
+    const passes = activeFacets.every(([field, values]) => {
+      const strVal = facetStringValue(entry.fields[field]);
+      return strVal != null && values.has(strVal);
+    });
+    if (passes) result.add(entry.id);
+  }
+  return result;
+}
+
 const DEFAULT_FIELD_LIMIT = 6;
 
 /** Derive visibleFields from the full fields list */

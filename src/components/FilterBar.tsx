@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useLogStore } from "../lib/store";
+import { applyFacetFilters } from "../lib/types";
 import clsx from "clsx";
 
 interface FilterBarProps {
@@ -47,9 +48,11 @@ export function FilterBar({ onBrowse }: FilterBarProps) {
   if (!activeTab) return null;
 
   const {
+    id: tabId,
     fileName,
     entries,
     filteredIds,
+    facetFilters,
     parseErrors,
     filter,
     filterMode,
@@ -58,6 +61,10 @@ export function FilterBar({ onBrowse }: FilterBarProps) {
     visibleFields,
     timeRange,
   } = activeTab;
+
+  // Export must honour active facet filters, so export exactly what the table
+  // shows. Mirrors useFilterPipeline's final id set via the shared helper.
+  const exportIds = applyFacetFilters(entries, filteredIds, facetFilters);
 
   const handleFilterChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,7 +82,8 @@ export function FilterBar({ onBrowse }: FilterBarProps) {
     setExporting(true);
     try {
       const count = await invoke<number | null>("export_filtered", {
-        ids: [...filteredIds],
+        tabId,
+        ids: [...exportIds],
       });
       if (count !== null) console.info(`Exported ${count} entries`);
     } catch (err) {
@@ -207,7 +215,7 @@ export function FilterBar({ onBrowse }: FilterBarProps) {
         <div className="flex items-center gap-3 text-xs text-slate-500 shrink-0">
           <span>
             <span className="text-slate-200 font-mono">
-              {filteredIds.size.toLocaleString()}
+              {exportIds.size.toLocaleString()}
             </span>
             {" / "}
             <span className="font-mono">{entries.length.toLocaleString()}</span>
@@ -231,7 +239,7 @@ export function FilterBar({ onBrowse }: FilterBarProps) {
         </div>
 
         {/* Export */}
-        {filteredIds.size > 0 && (
+        {exportIds.size > 0 && (
           <button
             onClick={handleExport}
             disabled={exporting}
