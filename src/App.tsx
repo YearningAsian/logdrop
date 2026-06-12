@@ -1,0 +1,123 @@
+import { useCallback, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import { useLogStore } from "./lib/store";
+import { ParseResult } from "./lib/types";
+import { DropZone } from "./components/DropZone";
+import { FilterBar } from "./components/FilterBar";
+import { LogTable } from "./components/LogTable";
+import { DetailPanel } from "./components/DetailPanel";
+import { Loader2 } from "lucide-react";
+
+export default function App() {
+  const {
+    filePath, entries, isLoading,
+    filter, filterMode, setFile, setParseResult, setFilter, setFilteredIds, setFilterError, setLoading,
+  } = useLogStore();
+
+  // ── File loading ────────────────────────────────────────────────────────────
+
+  const loadFile = useCallback(async (path: string) => {
+    setLoading(true);
+    setFile(path);
+    try {
+      const result = await invoke<ParseResult>("parse_log_file", { path });
+      setParseResult(result.entries, result.fields, result.total_lines, result.parse_errors);
+    } catch (err) {
+      console.error("Failed to parse log file:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [setFile, setLoading, setParseResult]);
+
+  const browseFile = useCallback(async () => {
+    const selected = await open({
+      multiple: false,
+      filters: [
+        { name: "Log files", extensions: ["log", "json", "ndjson", "jsonl", "txt"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+    if (typeof selected === "string") {
+      await loadFile(selected);
+    }
+  }, [loadFile]);
+
+  // ── Filter — entries are stored in Rust state, only the query travels IPC ──
+
+  useEffect(() => {
+    if (entries.length === 0) return;
+
+    const debounce = setTimeout(async () => {
+      try {
+        const ids = await invoke<number[]>("filter_entries", {
+          query: filter,
+          useRegex: filterMode === "regex",
+        });
+        setFilterError(null);
+        setFilteredIds(ids);
+      } catch (err) {
+        const msg = String(err).replace(/^.*Invalid regex:\s*/, "");
+        setFilterError(msg);
+      }
+    }, 150);
+
+    return () => clearTimeout(debounce);
+  }, [filter, filterMode, entries.length, setFilteredIds]);
+
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "o") {
+        e.preventDefault();
+        browseFile();
+      }
+      if (e.key === "Escape" && filter) {
+        setFilter("");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [browseFile, filter, setFilter]);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center w-screen h-screen bg-[#0a0f1a]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 size={32} className="text-sky-400 animate-spin" />
+          <p className="text-slate-400 text-sm font-mono">Parsing log file…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!filePath) {
+    return (
+      <div className="w-screen h-screen bg-[#0a0f1a] flex flex-col">
+        <div className="flex items-center justify-between px-4 h-11 border-b border-slate-800/60">
+          <span className="text-slate-400 font-mono text-sm font-semibold tracking-tight">
+            logdrop
+          </span>
+          <span className="text-xs text-slate-700 font-mono">
+            ⌘O to open
+          </span>
+        </div>
+        <DropZone onFileDrop={loadFile} onBrowse={browseFile} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-screen h-screen bg-[#0a0f1a] flex flex-col overflow-hidden">
+      <FilterBar onBrowse={browseFile} />
+
+      <div className="flex-1 flex overflow-hidden">
+        <LogTable />
+        <DetailPanel />
+      </div>
+    </div>
+  );
+}
