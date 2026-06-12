@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useLogStore } from "./lib/store";
@@ -47,8 +47,19 @@ export default function App() {
 
   // ── Filter — entries are stored in Rust state, only the query travels IPC ──
 
+  const filterSeq = useRef(0);
+
   useEffect(() => {
     if (entries.length === 0) return;
+    const seq = ++filterSeq.current;
+
+    // Empty query matches everything — resolve locally instead of paying an
+    // IPC round-trip that serializes every entry id back to the webview.
+    if (filter.trim() === "") {
+      setFilterError(null);
+      setFilteredIds(entries.map((e) => e.id));
+      return;
+    }
 
     const debounce = setTimeout(async () => {
       try {
@@ -56,16 +67,18 @@ export default function App() {
           query: filter,
           useRegex: filterMode === "regex",
         });
+        if (seq !== filterSeq.current) return; // stale response — a newer query won
         setFilterError(null);
         setFilteredIds(ids);
       } catch (err) {
+        if (seq !== filterSeq.current) return;
         const msg = String(err).replace(/^.*Invalid regex:\s*/, "");
         setFilterError(msg);
       }
     }, 150);
 
     return () => clearTimeout(debounce);
-  }, [filter, filterMode, entries.length, setFilteredIds]);
+  }, [filter, filterMode, entries, setFilteredIds, setFilterError]);
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
 
