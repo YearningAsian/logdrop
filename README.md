@@ -18,7 +18,7 @@ Offline-first structured log explorer. Drop a log file, query it. No stack, no s
 
 ## Stack
 
-- **Frontend:** React 18 + TypeScript + Vite + Tailwind CSS
+- **Frontend:** React 19 + TypeScript 6 + Vite + Tailwind CSS 4
 - **Table:** TanStack Table v8 + TanStack Virtual (row virtualization)
 - **State:** Zustand
 - **Backend:** Tauri 2 + Rust (file I/O, NDJSON parsing, filtering with the `regex` crate)
